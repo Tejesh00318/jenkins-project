@@ -5,7 +5,7 @@ pipeline {
         IMAGE_NAME     = 'tej2003/hello-web'
         IMAGE_TAG      = "${env.BUILD_NUMBER}"
         CONTAINER_NAME = 'hello-web'
-        HOST_PORT      = '8080'
+        HOST_PORT      = '8081'
     }
 
     options {
