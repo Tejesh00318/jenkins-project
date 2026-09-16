@@ -1,0 +1,91 @@
+pipeline {
+    agent any
+
+    environment {
+        IMAGE_NAME     = 'yourdockerhubuser/hello-web'
+        IMAGE_TAG      = "${env.BUILD_NUMBER}"
+        CONTAINER_NAME = 'hello-web'
+        HOST_PORT      = '8080'
+    }
+
+    options {
+        timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+                sh 'git log -1 --oneline'
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                sh 'npm ci'
+            }
+        }
+
+        stage('Test') {
+            steps {
+                sh 'npm test'
+            }
+        }
+
+        stage('Build Image') {
+            steps {
+                script {
+                    docker.build("${IMAGE_NAME}:${IMAGE_TAG}")
+                }
+            }
+        }
+
+        stage('Push Image') {
+            steps {
+                script {
+                    docker.withRegistry('https://index.docker.io/v1/', 'dockerhub-creds') {
+                        def img = docker.image("${IMAGE_NAME}:${IMAGE_TAG}")
+                        img.push()
+                        img.push('latest')
+                    }
+                }
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                sh """
+                    docker rm -f ${CONTAINER_NAME} || true
+                    docker run -d \
+                        --name ${CONTAINER_NAME} \
+                        --restart unless-stopped \
+                        -p ${HOST_PORT}:3000 \
+                        ${IMAGE_NAME}:${IMAGE_TAG}
+                """
+            }
+        }
+
+        stage('Smoke Test') {
+            steps {
+                sh '''
+                    sleep 5
+                    curl -f http://localhost:8080/health
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Deployed ${IMAGE_NAME}:${IMAGE_TAG} on port ${HOST_PORT}"
+        }
+        failure {
+            echo 'Pipeline failed — check the stage logs above.'
+        }
+        always {
+            sh 'docker image prune -f || true'
+        }
+    }
+}
